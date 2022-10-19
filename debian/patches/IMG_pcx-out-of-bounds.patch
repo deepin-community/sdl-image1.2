@@ -1,0 +1,71 @@
+Description: fix multiple OOB issues in IMG_pcx.c
+ This patches addresses following issues: CVE-2019-12222, CVE-2019-12221,
+ CVE-2019-12220, CVE-2019-12219 and CVE-2019-12217.
+Author: Sam Lantinga <slouken@libsdl.org>, Hugo Lefeuvre <hle@debian.org>
+Origin: upstream, https://hg.libsdl.org/SDL_image/rev/e7e9786a1a34
+--- a/IMG_pcx.c	2019-07-23 11:56:00.765397153 -0300
++++ b/IMG_pcx.c	2019-07-23 11:51:23.082490857 -0300
+@@ -148,18 +148,17 @@
+ 		goto done;
+ 
+ 	bpl = pcxh.NPlanes * pcxh.BytesPerLine;
+-	if (bpl < 0 || bpl > surface->pitch) {
+-		error = "bytes per line is too large (corrupt?)";
++	buf = (Uint8 *)SDL_calloc(bpl, 1);
++	if ( !buf ) {
++		error = "Out of memory";
+ 		goto done;
+ 	}
+-	buf = (Uint8 *)SDL_calloc(surface->pitch, 1);
+ 	row = surface->pixels;
+ 	for ( y=0; y<surface->h; ++y ) {
+ 		/* decode a scan line to a temporary buffer first */
+ 		int i;
+-		Uint8 *dst = buf;
+ 		if ( pcxh.Encoding == 0 ) {
+-			if(!SDL_RWread(src, dst, bpl, 1)) {
++			if(!SDL_RWread(src, buf, bpl, 1)) {
+ 				error = "file truncated";
+ 				goto done;
+ 			}
+@@ -180,7 +179,7 @@
+ 						}
+ 					}
+ 				}
+-				dst[i] = ch;
++				buf[i] = ch;
+ 				count--;
+ 			}
+ 		}
+@@ -202,13 +201,21 @@
+ 					}
+ 				}
+ 			}
++		} else if ( src_bits == 8 ) {
++			/* directly copy buf content to row */
++			Uint8 *innerSrc = buf;
++			int x;
++			Uint8 *dst = row;
++			for ( x = 0; x < width; x++ ) {
++				*dst++ = *innerSrc++;
++			}
+  		} else if(src_bits == 24) {
+ 			/* de-interlace planes */
+ 			Uint8 *src = buf;
+ 			int plane;
+ 			for(plane = 0; plane < pcxh.NPlanes; plane++) {
+ 				int x;
+-				dst = row + plane;
++				Uint8 *dst = row + plane;
+ 				for(x = 0; x < width; x++) {
+ 					if ( dst >= row+surface->pitch ) {
+ 						error = "decoding out of bounds (corrupt?)";
+@@ -218,8 +225,6 @@
+ 					dst += pcxh.NPlanes;
+ 				}
+ 			}
+-		} else {
+-			SDL_memcpy(row, buf, bpl);
+ 		}
+ 
+ 		row += surface->pitch;
